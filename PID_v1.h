@@ -17,14 +17,16 @@ class PID
   #define P_ON_E 1
 
   //commonly used functions **************************************************************************
-    PID(        // * constructor.  links the PID to the Input, Output, and 
+    PID(double*, double*, double*,        // * constructor.  links the PID to the Input, Output, and 
         double, double, double, int, int);//   Setpoint.  Initial tuning parameters are also set here.
                                           //   (overload for specifying proportional mode)
 
-    PID(      // * constructor.  links the PID to the Input, Output, and 
+    PID(double*, double*, double*,        // * constructor.  links the PID to the Input, Output, and 
         double, double, double, int);     //   Setpoint.  Initial tuning parameters are also set here
 	
-    double Compute(double, double, unsigned long);                       // * performs the PID calculation.  it should be
+    void SetMode(int Mode);               // * sets PID to either Manual (0) or Auto (non-0)
+
+    bool Compute();                       // * performs the PID calculation.  it should be
                                           //   called every time loop() cycles. ON/OFF and
                                           //   calculation frequency can be set using SetMode
                                           //   SetSampleTime respectively
@@ -55,6 +57,7 @@ class PID
 	double GetKp();						  // These functions query the pid for interal values.
 	double GetKi();						  //  they were created mainly for the pid front-end,
 	double GetKd();						  // where it's important to know what is actually 
+	int GetMode();						  //  inside the PID.
 	int GetDirection();					  //
 
   private:
@@ -71,11 +74,17 @@ class PID
 	int controllerDirection;
 	int pOn;
 
+    double *myInput;              // * Pointers to the Input, Output, and Setpoint variables
+    double *myOutput;             //   This creates a hard link between the variables and the 
+    double *mySetpoint;           //   PID, freeing the user from having to constantly tell us
+                                  //   what these values are.  with pointers we'll just know.
+			  
+	unsigned long lastTime;
 	double outputSum, lastInput;
 
 	unsigned long SampleTime;
 	double outMin, outMax;
-	bool pOnE;
+	bool inAuto, pOnE;
 };
 #endif
 

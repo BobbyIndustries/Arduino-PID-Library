@@ -5,15 +5,26 @@
  * This Library is licensed under the MIT License
  **********************************************************************************************/
 
+#if ARDUINO >= 100
+  #include "Arduino.h"
+#else
+  #include "WProgram.h"
+#endif
+
 #include <PID_v1.h>
-#include <limits>
 
 /*Constructor (...)*********************************************************
  *    The parameters specified here are those for for which we can't set up
  *    reliable defaults, so we need to have the user set them.
  ***************************************************************************/
-PID::PID(double Kp, double Ki, double Kd, int POn, int ControllerDirection)
+PID::PID(double* Input, double* Output, double* Setpoint,
+        double Kp, double Ki, double Kd, int POn, int ControllerDirection)
 {
+    myOutput = Output;
+    myInput = Input;
+    mySetpoint = Setpoint;
+    inAuto = false;
+
     PID::SetOutputLimits(0, 255);				//default output limit corresponds to
 												//the arduino pwm limits
 
@@ -22,6 +33,7 @@ PID::PID(double Kp, double Ki, double Kd, int POn, int ControllerDirection)
     PID::SetControllerDirection(ControllerDirection);
     PID::SetTunings(Kp, Ki, Kd, POn);
 
+    lastTime = millis()-SampleTime;
 }
 
 /*Constructor (...)*********************************************************
@@ -29,9 +41,9 @@ PID::PID(double Kp, double Ki, double Kd, int POn, int ControllerDirection)
  *    to use Proportional on Error without explicitly saying so
  ***************************************************************************/
 
-PID::PID(
+PID::PID(double* Input, double* Output, double* Setpoint,
         double Kp, double Ki, double Kd, int ControllerDirection)
-    :PID::PID(Kp, Ki, Kd, P_ON_E, ControllerDirection)
+    :PID::PID(Input, Output, Setpoint, Kp, Ki, Kd, P_ON_E, ControllerDirection)
 {
 
 }
@@ -43,13 +55,16 @@ PID::PID(
  *   pid Output needs to be computed.  returns true when the output is computed,
  *   false when nothing has been done.
  **********************************************************************************/
-double PID::Compute(double Input, double Setpoint, unsigned long Time)
+bool PID::Compute()
 {
-   if(Time>=SampleTime)
+   if(!inAuto) return false;
+   unsigned long now = millis();
+   unsigned long timeChange = (now - lastTime);
+   if(timeChange>=SampleTime)
    {
       /*Compute all the working error variables*/
-      double input = Input;
-      double error = Setpoint - input;
+      double input = *myInput;
+      double error = *mySetpoint - input;
       double dInput = (input - lastInput);
       outputSum+= (ki * error);
 
@@ -69,12 +84,14 @@ double PID::Compute(double Input, double Setpoint, unsigned long Time)
 
 	    if(output > outMax) output = outMax;
       else if(output < outMin) output = outMin;
+	    *myOutput = output;
 
       /*Remember some variables for next time*/
       lastInput = input;
-	    return output;
+      lastTime = now;
+	    return true;
    }
-   else return outputSum;
+   else return false;
 }
 
 /* SetTunings(...)*************************************************************
@@ -139,6 +156,15 @@ void PID::SetOutputLimits(double Min, double Max)
    if(Min >= Max) return;
    outMin = Min;
    outMax = Max;
+
+   if(inAuto)
+   {
+	   if(*myOutput > outMax) *myOutput = outMax;
+	   else if(*myOutput < outMin) *myOutput = outMin;
+
+	   if(outputSum > outMax) outputSum= outMax;
+	   else if(outputSum < outMin) outputSum= outMin;
+   }
 }
 
 /* SetMode(...)****************************************************************
@@ -146,14 +172,26 @@ void PID::SetOutputLimits(double Min, double Max)
  * when the transition from manual to auto occurs, the controller is
  * automatically initialized
  ******************************************************************************/
+void PID::SetMode(int Mode)
+{
+    bool newAuto = (Mode == AUTOMATIC);
+    if(newAuto && !inAuto)
+    {  /*we just went from manual to auto*/
+        PID::Initialize();
+    }
+    inAuto = newAuto;
+}
+
 /* Initialize()****************************************************************
  *	does all the things that need to happen to ensure a bumpless transfer
  *  from manual to automatic mode.
  ******************************************************************************/
 void PID::Initialize()
 {
-   outputSum = 0.0;
-   lastInput = 0.0;
+   outputSum = *myOutput;
+   lastInput = *myInput;
+   if(outputSum > outMax) outputSum = outMax;
+   else if(outputSum < outMin) outputSum = outMin;
 }
 
 /* SetControllerDirection(...)*************************************************
@@ -164,7 +202,7 @@ void PID::Initialize()
  ******************************************************************************/
 void PID::SetControllerDirection(int Direction)
 {
-   if(Direction !=controllerDirection)
+   if(inAuto && Direction !=controllerDirection)
    {
 	    kp = (0 - kp);
       ki = (0 - ki);
@@ -181,5 +219,6 @@ void PID::SetControllerDirection(int Direction)
 double PID::GetKp(){ return  dispKp; }
 double PID::GetKi(){ return  dispKi;}
 double PID::GetKd(){ return  dispKd;}
+int PID::GetMode(){ return  inAuto ? AUTOMATIC : MANUAL;}
 int PID::GetDirection(){ return controllerDirection;}
 
